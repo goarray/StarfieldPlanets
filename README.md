@@ -15,9 +15,9 @@ Starfield planets extracted to CSV format for external use.
 
 ### `StarfieldPlanets.csv`
 
-* **Probably the only file you want**
+* **Final output file** – usually the one you'll use.
+* Full spreadsheet containing all Starfield planets and most* of their data.
 * Output of `StarfieldPlanets.py`.
-* Full spreadsheet containing all Starfield planets and their data.
 
 ### `StarfieldPlanets.py`
 
@@ -42,4 +42,10 @@ Starfield planets extracted to CSV format for external use.
 
 * From xEdit root folder, run `python StarfieldPlanets.py`.
 * Outputs `StarfieldPlanets.csv` to the same folder.
+
+---
+
+## Notes
+
+* Most 'HNAM - Unknown' fields were skipped. 
 
