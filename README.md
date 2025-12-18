@@ -16,7 +16,7 @@ Starfield planets extracted to CSV format for external use.
 ### `StarfieldPlanets.csv`
 
 * **Final output file** – usually the one you'll use.
-* Full spreadsheet containing all Starfield planets and most* of their data.
+* Full spreadsheet containing all Starfield planets and 'most (see notes)' of their data.
 * Output of `StarfieldPlanets.py`.
 
 ### `StarfieldPlanets.py`
