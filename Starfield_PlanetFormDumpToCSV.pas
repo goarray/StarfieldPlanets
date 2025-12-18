@@ -1,5 +1,5 @@
 {
-  Starfield_FormDumpToCSV.pas
+  Starfield_PlanetFormDumpToCSV.pas
   Exports all selected planet records to PlanetsDump.csv for later processing.
   Empty field names -> Signature or 'Unknown'; empty values -> Name or 'None'.
    Certain known elements (e.g., Houdini BFCB) are skipped.
@@ -99,3 +99,4 @@ begin
 end;
 
 end.
+
