@@ -9,12 +9,13 @@ Starfield planets extracted to CSV format for external use.
 
 ### `PlanetsDump.csv`
 
-* Example output from `Starfield_PlanetFormDumpToCSV.pas`.
+* Example xEdit output from `Starfield_PlanetFormDumpToCSV.pas`.
 * Contains planets from Albetti through Akila.
 * Required input format for `StarfieldPlanets.py`.
 
 ### `StarfieldPlanets.csv`
 
+* **Probably the only file you want**
 * Output of `StarfieldPlanets.py`.
 * Full spreadsheet containing all Starfield planets and their data.
 
