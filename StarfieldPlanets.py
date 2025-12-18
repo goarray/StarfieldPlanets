@@ -79,7 +79,6 @@ def extract_biomes(df, max_biomes=10, max_fauna=10, max_flora=10):
 
     for _, row in df.iterrows():
         editorid = row['EditorID']
-        # Skip stations in the Biome pass
         if editorid in SKIP_EDITORIDS or editorid.startswith("_"):
             continue
         path = row['Path']
@@ -89,7 +88,6 @@ def extract_biomes(df, max_biomes=10, max_fauna=10, max_flora=10):
         if "PPBD - Biome" not in path:
             continue
 
-        # Extract the biome index
         match = re.search(r'Biome #(\d+)', path)
         if not match:
             continue
@@ -98,8 +96,11 @@ def extract_biomes(df, max_biomes=10, max_fauna=10, max_flora=10):
             continue
 
         if editorid not in planets_biomes:
-            planets_biomes[editorid] = {}
+            planets_biomes[editorid] = {"_max_biome_idx": -1}
         planet_b = planets_biomes[editorid]
+
+        # Update max biome index for count
+        planet_b["_max_biome_idx"] = max(planet_b["_max_biome_idx"], biome_idx)
 
         # Flatten the biome name
         if field_name == "Biome":
@@ -116,7 +117,7 @@ def extract_biomes(df, max_biomes=10, max_fauna=10, max_flora=10):
             if fidx < max_fauna:
                 planet_b[f"Biome{biome_idx}_Fauna{fidx}"] = value
 
-        # Flora entries
+        # Flora
         flora_match = re.search(r'Entry #(\d+)', path)
         if flora_match and "Flora" in path:
             flidx = int(flora_match.group(1))
@@ -132,10 +133,22 @@ def extract_biomes(df, max_biomes=10, max_fauna=10, max_flora=10):
         if field_name == "Count" and "Flora" in path:
             planet_b[f"Biome{biome_idx}_FloraCount"] = int(value)
 
-    df_out = pd.DataFrame([{"EditorID": eid, **data} for eid, data in planets_biomes.items()])
+    # Flatten and add biome count + life detection
+    df_out = pd.DataFrame(
+        [
+            {
+                "EditorID": eid,
+                **{k: v for k, v in data.items() if not k.startswith('_')},
+                "BiomeCount": data["_max_biome_idx"] + 1,
+                "HasLife": ("nolife" not in str(data.get("Biome0_Name","")).lower() and
+                            "life" in str(data.get("Biome0_Name","")).lower())
+            }
+            for eid, data in planets_biomes.items()
+        ]
+    )
 
     if df_out.empty:
-        return pd.DataFrame(columns=["EditorID"])
+        return pd.DataFrame(columns=["EditorID", "BiomeCount", "HasLife"])
 
     return df_out
     
@@ -187,7 +200,7 @@ for _, row in df.iterrows():
     planet = planets[editorid]
     
     # Initialize resource fields if not already
-    for col in ["Density", "ModelPath_nif", "PlanetMat_int", "AtmoMat_int", "AtmoMatOuter_int",
+    for col in ["Density_gcc", "ModelPath_nif", "PlanetMat_int", "AtmoMat_int", "AtmoMatOuter_int",
                 "AtmosphereForm", "AtmoFrac", "AtmoRay", "AtmoMie"]:
         if col not in planet:
             planet[col] = None
@@ -204,21 +217,35 @@ for _, row in df.iterrows():
     if "Component Data - Planet Model" in path:
         # Base NIF
         if field_name == "MODL - Model":
-            planet["BaseMesh"] = value
-            planet["ModelPath_nif"] = value
+            planet["PlanetMesh_nif"] = value
 
         # Planet material mesh hash
+        if field_name == "Resource:ID":
+            planet["_last_resource"] = value.lower()
         elif field_name == "File Hash":
-            # Look back at the Resource:ID value in the same component row
-            resource_row = df.iloc[_ - 1] if _ > 0 else None
-            if resource_row is not None and resource_row['Field Name'] == "Resource:ID":
-                resource_name = resource_row['Value']
-                if "planet_mesh" in resource_name:
-                    planet["PlanetMat_int"] = value
-                elif "atmosphere_mesh:0" in resource_name:
-                    planet["AtmoMat_int"] = value
-                elif "atmosphere_mesh_outer:0" in resource_name:
-                    planet["AtmoMatOuter_int"] = value
+            last_resource = planet.get("_last_resource", "")
+            # Planet materials
+            if "planet_mesh" in last_resource:
+                planet["PlanetMat_int"] = value
+            elif "atmosphere_mesh:0" in last_resource:
+                planet["AtmoMat_int"] = value
+            elif "atmosphere_mesh_outer:0" in last_resource:
+                planet["AtmoMatOuter_int"] = value
+            elif "planetoid" in last_resource:
+                match = re.search(r'planetoid[_:](\d+)', last_resource)
+                if match:
+                    idx = match.group(1)
+                    existing = planet.get("PlanetoidRes", "")
+                    new_entry = f"{idx}:{value}"
+                    planet["PlanetoidRes"] = f"{existing};{new_entry}" if existing else new_entry
+                    
+        # Planet ring fields
+        if field_name == "MCQP - Ring model":
+            planet["RingMesh_nif"] = value
+        elif field_name == "XMSP - Ring material":
+            planet["RingMaterial_mat"] = value
+        elif field_name == "XLMS - Ring id":
+            planet["RingID"] = value
                     
     # -----------------------------
     # Worldspaces
@@ -270,23 +297,23 @@ for _, row in df.iterrows():
     # Body/ENAM - Orbital Data
     if "ENAM - Orbital Data" in path:
         if field_name == "Major Axis":
-            planet["MajorAxis"] = to_float(value)
+            planet["MajorAxis_km"] = to_float(value)
         elif field_name == "Minor Axis":
-            planet["MinorAxis"] = to_float(value)
+            planet["MinorAxis_km"] = to_float(value)
         elif field_name == "Aphelion":
-            planet["Aphelion"] = to_float(value)
+            planet["Aphelion_km"] = to_float(value)
         elif field_name == "Eccentricity":
             planet["Eccentricity"] = to_float(value)
         elif field_name == "Incline":
             planet["Incline_r"] = to_float(value)
         elif field_name == "Mean Orbit":
-            planet["MeanOrbit"] = to_float(value)
+            planet["MeanOrbit_km"] = to_float(value)
         elif field_name == "Axial Tilt":
             planet["AxialTilt_r"] = to_float(value)
         elif field_name == "Rotational Velocity":
-            planet["RotationalVelocity"] = to_float(value)
+            planet["RotationalVelocity_eu"] = to_float(value)
         elif field_name == "Start Angle":
-            planet["StartAngle"] = to_float(value)
+            planet["StartAngle_deg"] = to_float(value)
         elif field_name == "Apply Orbital Velocity":
             planet["ApplyOrbitalVelocity"] = value
         elif field_name == "Geostationary Orbit":
@@ -295,13 +322,13 @@ for _, row in df.iterrows():
     # Body/FNAM - Orbited Data
     if "FNAM - Orbited Data" in path:
         if field_name == "Gravity Well":
-            planet["GravityWell"] = to_float(value)
+            planet["GravityWell_g"] = to_float(value)
         elif field_name == "Mass (in Earth Masses)":
-            planet["Mass_Earth"] = to_float(value)
+            planet["Mass_eu"] = to_float(value)
         elif field_name == "Radius in km":
             planet["Radius_km"] = to_float(value)
         elif field_name == "Surface Gravity":
-            planet["SurfaceGravity"] = to_float(value)
+            planet["SurfaceGravity_g"] = to_float(value)
 
     # Body/GNAM - Galaxy Data
     elif "GNAM - Galaxy Data" in path:
@@ -318,17 +345,17 @@ for _, row in df.iterrows():
             continue
             
         if field_name == "Life":
-            planet["Life"] = value
+            planet["Life_meta"] = value
         elif field_name == "Magnetosphere":
-            planet["Magnetosphere"] = value
+            planet["Magnetosphere_meta"] = value
         elif field_name == "Type":
-            planet["PlanetType"] = value
+            planet["PlanetType_meta"] = value
         elif field_name == "Settled star":
-            planet["SettledStar"] = value
+            planet["SettledStar_meta"] = value
         elif field_name == "Special":
-            planet["Special"] = value
+            planet["Special_meta"] = value
         elif field_name == "DENS - Density":
-            planet["Density"] = to_float(value)
+            planet["Density_gcc"] = to_float(value)
         elif field_name == "Rings":
             planet["HasRings"] = value
 
@@ -359,7 +386,7 @@ for _, row in df.iterrows():
             
     # Body
     if field_name == "TEMP - Temperature in C":
-        planet["TemperatureC"] = to_float(value)
+        planet["Temperature_C"] = to_float(value)
 
     # -----------------------------
     # Manual fix for known bad entry
@@ -413,18 +440,20 @@ biome_cols_sorted = sorted([c for c in df_biomes_flat.columns if c != "EditorID"
 flat_df = flat_df.merge(df_biomes_flat, on="EditorID", how="left")
 
 # Define the column order
-cols = ["EditorID", "BaseMesh","PlanetMat_int","AtmoMat_int","AtmoMatOuter_int", "FULL_Name", #Base Form Components
-        "SurfaceTree", "ScanMult", # Other
+cols = ["EditorID", # Base Form Components
+        "PlanetMesh_nif","PlanetMat_int","AtmoMat_int","AtmoMatOuter_int", "PlanetoidRes", "RingMesh_nif", "RingMaterial_mat", "RingID",
+        "FULL_Name",
+        "SurfaceTree", "ScanMult", # Root
         "ANAM_Name", "BodyType", # Body
-        "MajorAxis", "MinorAxis", "Aphelion", "Eccentricity", "Incline_r", "MeanOrbit", "AxialTilt_r", # DNAM - Orbital Data
-        "RotationalVelocity", "StartAngle", "ApplyOrbitalVelocity", "GeostationaryOrbit",
-        "GravityWell", "Mass_Earth", "Radius_km", "SurfaceGravity", # FNAM - Orbited Data
-        "SystemID", "ParentID", "PlanetID", # GNAM - Galaxy Data
-        "Life", "Magnetosphere", "PlanetType", "Density", "SettledStar", "Special", "HasRings", # HNAM - Unknown
-        "AtmosphereForm", "AtmoFrac", "AtmoRay", "AtmoMie", # INAM - Atmosphere Data
-        "BiomeNoiseFile", "BNoiseType", "THeightSeed", "TMaxHeight_m", # KNAM - Biome Noise
-        "TemperatureC", # Body Continued
-] + list(keyword_columns.values()) + biome_cols_sorted # CNAM - Master Worldspaces and Biomes
+        "MajorAxis_km", "MinorAxis_km", "Aphelion_km", "Eccentricity", "Incline_r", "MeanOrbit_km", "AxialTilt_r", # Body / DNAM - Orbital Data
+        "RotationalVelocity_eu", "StartAngle_deg", "ApplyOrbitalVelocity", "GeostationaryOrbit",
+        "GravityWell_g", "Mass_eu", "Radius_km", "SurfaceGravity_g", # Body / FNAM - Orbited Data
+        "SystemID", "ParentID", "PlanetID", # Body / GNAM - Galaxy Data
+        "Life_meta", "Magnetosphere_meta", "PlanetType_meta", "Density_gcc", "SettledStar_meta", "Special_meta", "HasRings", # Body / HNAM - Unknown
+        "AtmosphereForm", "AtmoFrac", "AtmoRay", "AtmoMie", # Body / INAM - Atmosphere Data
+        "BiomeNoiseFile", "BNoiseType", "THeightSeed", "TMaxHeight_m", # Body / KNAM - Biome Noise
+        "Temperature_C", # Root Continued
+] + list(keyword_columns.values()) + ["BiomeCount", "HasLife"] + biome_cols_sorted # Root / CNAM - Master Worldspaces and Biomes
 
 ws_cols = [f"Worldspace{i}_{suffix}" for i in range(max_ws) for suffix in ["Name","Lat","Lon"]]
 cols += ws_cols
